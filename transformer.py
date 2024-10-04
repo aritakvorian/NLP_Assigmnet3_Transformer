@@ -52,19 +52,18 @@ class Transformer(nn.Module):
         :return: A tuple of the softmax log probabilities (should be a 20x3 matrix) and a list of the attention
         maps you use in your layers (can be variable length, but each should be a 20x20 matrix)
         """
-        # Embedding lookup + positional encoding
+
         x = self.embedding(indices)
-        x = self.positional_encoding(x)
+        # x = self.positional_encoding(x)
 
         attention_maps = []
-        # Pass through each transformer layer
+
         for layer in self.transformer_layers:
             x, attention_map = layer(x)
             attention_maps.append(attention_map)
 
-        # Linear layer for classification
-        logits = self.linear(x)
-        log_probs = self.log_softmax(logits)
+        res = self.linear(x)
+        log_probs = self.log_softmax(res)
 
         return log_probs, attention_maps
 
@@ -80,25 +79,40 @@ class TransformerLayer(nn.Module):
         should both be of this length.
         """
         super().__init__()
-        self.attention = nn.MultiheadAttention(d_model, num_heads=1)  # Simplified single-head attention
-        self.norm1 = nn.LayerNorm(d_model)
+
+        self.query_layer = nn.Linear(d_model, d_internal)
+        self.key_layer = nn.Linear(d_model, d_internal)
+        self.value_layer = nn.Linear(d_model, d_internal)
+        self.output_projection = nn.Linear(d_internal, d_model)
+
         self.feedforward = nn.Sequential(
             nn.Linear(d_model, d_internal),
             nn.ReLU(),
             nn.Linear(d_internal, d_model)
         )
-        self.norm2 = nn.LayerNorm(d_model)
+
+        self.d_model = d_model
 
     def forward(self, input_vecs):
-        # Self-attention with residual connection
-        attn_output, attn_weights = self.attention(input_vecs, input_vecs, input_vecs)
-        x = self.norm1(input_vecs + attn_output)
+        queries = self.query_layer(input_vecs)
+        keys = self.key_layer(input_vecs)
+        values = self.value_layer(input_vecs)
 
-        # Feed-forward with residual connection
-        ff_output = self.feedforward(x)
-        output = self.norm2(x + ff_output)
+        keys_t = keys.transpose(-2, -1)
 
-        return output, attn_weights
+        scores = torch.matmul(queries, keys_t) / np.sqrt(self.d_model)
+        attention = torch.softmax(scores, dim=0)
+        attention = torch.matmul(attention, values)
+
+        attention_output = self.output_projection(attention)
+
+        attention_output = input_vecs + attention_output
+
+        ff_output = self.feedforward(attention_output)
+
+        output = attention_output + ff_output
+
+        return output, attention
 
 
 # Implementation of positional encoding that you can use in your network
@@ -142,30 +156,40 @@ def train_classifier(args, train, dev):
     model = Transformer(
         vocab_size=27,
         num_positions=20,
-        d_model=128,
-        d_internal=64,
+        d_model=64,
+        d_internal=32,
         num_classes=3,
-        num_layers=2
+        num_layers=1
     )
     model.zero_grad()
     model.train()
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
     loss_fcn = nn.NLLLoss()
 
     num_epochs = 10
     for epoch in range(num_epochs):
+
         total_loss = 0.0
         random.shuffle(train)
+
         for example in train:
-            log_probs, _ = model(example.input_tensor.unsqueeze(1))  # Adding batch dimension
-            loss = loss_fcn(log_probs.view(-1, 3), example.output_tensor.view(-1))
+
+            # x = example.input_tensor.unsqueeze(1)
+
+            x = example.input_tensor
+
+            log_probs, maps = model(x)
+            losses = log_probs.view(-1,3)
+            truth = example.output_tensor.view(-1)
+
+            loss = loss_fcn(losses, truth)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
 
-        print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss}")
 
     model.eval()
     return model
