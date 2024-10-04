@@ -54,7 +54,7 @@ class Transformer(nn.Module):
         """
 
         x = self.embedding(indices)
-        # x = self.positional_encoding(x)
+        x = self.positional_encoding(x)
 
         attention_maps = []
 
@@ -156,14 +156,14 @@ def train_classifier(args, train, dev):
     model = Transformer(
         vocab_size=27,
         num_positions=20,
-        d_model=64,
-        d_internal=32,
+        d_model=100,
+        d_internal=50,
         num_classes=3,
-        num_layers=1
+        num_layers=3
     )
     model.zero_grad()
     model.train()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
     loss_fcn = nn.NLLLoss()
 
     num_epochs = 10
@@ -173,8 +173,6 @@ def train_classifier(args, train, dev):
         random.shuffle(train)
 
         for example in train:
-
-            # x = example.input_tensor.unsqueeze(1)
 
             x = example.input_tensor
 
