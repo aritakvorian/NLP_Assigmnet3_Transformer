@@ -238,8 +238,8 @@ def train_lm(args, train_text, dev_text, vocab_index):
     d_model = 128
     d_internal = 64
     learning_rate = 0.0001
-    num_head = 4
-    num_layers = 3
+    num_head = 8
+    num_layers = 6
     vocab_size = len(vocab_index)
 
     model = TransformerLM(vocab_size=vocab_size,
@@ -284,11 +284,9 @@ def train_lm(args, train_text, dev_text, vocab_index):
             optimizer.zero_grad()
             prediction = model(input_tensor, mask)
 
-            test = torch.exp(prediction)
-
+            # Loss calc
             pred_output = prediction.view(-1, vocab_size)
             truth = target_tensor.view(-1)
-
             loss = loss_fn(pred_output, truth)
             loss.backward()
             optimizer.step()
