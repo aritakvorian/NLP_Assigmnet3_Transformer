@@ -187,6 +187,7 @@ class NeuralLanguageModel(LanguageModel):
             best_three_letters = [(self.vocab_index.get_object(idx), real_probs[idx]) for idx in best_three_idxs]
 
             total_log_prob += log_prob_of_char
+            #print(f'log_prob added: {log_prob_of_char}')
 
             current_context_chunk += char
 
