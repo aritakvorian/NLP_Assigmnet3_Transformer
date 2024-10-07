@@ -46,36 +46,56 @@ class UniformLanguageModel(LanguageModel):
         return np.log(1.0/self.voc_size) * len(next_chars)
 
 
+# class PositionalEncoding(nn.Module):
+#     def __init__(self, d_model: int, num_positions: int=20, batched=False):
+#         """
+#         :param d_model: dimensionality of the embedding layer to your model; since the position encodings are being
+#         added to character encodings, these need to match (and will match the dimension of the subsequent Transformer
+#         layer inputs/outputs)
+#         :param num_positions: the number of positions that need to be encoded; the maximum sequence length this
+#         module will see
+#         :param batched: True if you are using batching, False otherwise
+#         """
+#         super().__init__()
+#         # Dict size
+#         self.emb = nn.Embedding(num_positions, d_model)
+#         self.batched = batched
+#
+#     def forward(self, x):
+#         """
+#         :param x: If using batching, should be [batch size, seq len, embedding dim]. Otherwise, [seq len, embedding dim]
+#         :return: a tensor of the same size with positional embeddings added in
+#         """
+#         # Second-to-last dimension will always be sequence length
+#         input_size = x.shape[-2]
+#         indices_to_embed = torch.tensor(np.asarray(range(0, input_size))).type(torch.LongTensor)
+#         if self.batched:
+#             # Use unsqueeze to form a [1, seq len, embedding dim] tensor -- broadcasting will ensure that this
+#             # gets added correctly across the batch
+#             emb_unsq = self.emb(indices_to_embed).unsqueeze(0)
+#             return x + emb_unsq
+#         else:
+#             return x + self.emb(indices_to_embed)
+
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, num_positions: int=20, batched=False):
-        """
-        :param d_model: dimensionality of the embedding layer to your model; since the position encodings are being
-        added to character encodings, these need to match (and will match the dimension of the subsequent Transformer
-        layer inputs/outputs)
-        :param num_positions: the number of positions that need to be encoded; the maximum sequence length this
-        module will see
-        :param batched: True if you are using batching, False otherwise
-        """
-        super().__init__()
-        # Dict size
-        self.emb = nn.Embedding(num_positions, d_model)
-        self.batched = batched
+
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        #pe = pe.transpose(0, 1)
+        # pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
 
     def forward(self, x):
-        """
-        :param x: If using batching, should be [batch size, seq len, embedding dim]. Otherwise, [seq len, embedding dim]
-        :return: a tensor of the same size with positional embeddings added in
-        """
-        # Second-to-last dimension will always be sequence length
-        input_size = x.shape[-2]
-        indices_to_embed = torch.tensor(np.asarray(range(0, input_size))).type(torch.LongTensor)
-        if self.batched:
-            # Use unsqueeze to form a [1, seq len, embedding dim] tensor -- broadcasting will ensure that this
-            # gets added correctly across the batch
-            emb_unsq = self.emb(indices_to_embed).unsqueeze(0)
-            return x + emb_unsq
-        else:
-            return x + self.emb(indices_to_embed)
+        res = self.pe[:x.size(0), :]
+        x = x + res
+        return self.dropout(x)
 
 
 class TransformerLM(nn.Module):
@@ -86,7 +106,8 @@ class TransformerLM(nn.Module):
         self.chunk_size = chunk_size
 
         self.embedding = nn.Embedding(vocab_size, d_model)
-        self.positional_encoding = PositionalEncoding(d_model, chunk_size)
+        # self.positional_encoding = PositionalEncoding(d_model, chunk_size)
+        self.positional_encoding = PositionalEncoding(d_model)
 
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=num_head, dim_feedforward=d_internal,
                                                    dropout=dropout)
@@ -123,15 +144,22 @@ class NeuralLanguageModel(LanguageModel):
         self.vocab_size = len(vocab_index)
 
     def get_next_char_log_probs(self, context):
+
+        print(context)
         context_indices = [self.vocab_index.index_of(char) for char in context]
-        context_tensor = torch.tensor(context_indices).unsqueeze(0)
+        context_tensor = torch.tensor(context_indices)
         #context_mask = masking(context_tensor.size(1))
 
         with torch.no_grad():
             self.transformer_lm.eval()
             output = self.transformer_lm.generate(context_tensor)
 
-        return output[0, -1, :].numpy()
+        test = output[-1, :]
+        # test = output.squeeze(0)
+
+        #output = output[0, -1, :].numpy().unsqueeze(1)
+
+        return test.numpy()
 
     def get_log_prob_sequence(self, next_chars, context):
 
@@ -140,22 +168,30 @@ class NeuralLanguageModel(LanguageModel):
 
         total_log_prob = 0.0
 
+        # Used to only pull last chars (chunk_length) if provided context > chunk_length
         chunk_size = self.transformer_lm.chunk_size
-
         context_chunks = [context[i:i + chunk_size] for i in range(0, len(context), chunk_size)]
-
-        current_chunk = context_chunks[-1]
+        current_context_chunk = context_chunks[-1]
 
         for char in next_chars:
 
-            log_probs = self.get_next_char_log_probs(current_chunk)
+            log_probs = self.get_next_char_log_probs(current_context_chunk)
             char_index = self.vocab_index.index_of(char)
-            total_log_prob += log_probs[char_index]
 
-            current_chunk += char
+            log_prob_of_char = log_probs[char_index]
 
-            if len(current_chunk) > chunk_size:
-                current_chunk = current_chunk[-chunk_size:]
+            # Check top three letters
+            sorted = np.argsort(log_probs)
+            best_three_idxs = sorted[-3:]
+            real_probs = np.exp(log_probs)
+            best_three_letters = [(self.vocab_index.get_object(idx), real_probs[idx]) for idx in best_three_idxs]
+
+            total_log_prob += log_prob_of_char
+
+            current_context_chunk += char
+
+            if len(current_context_chunk) > chunk_size:
+                current_context_chunk = current_context_chunk[-chunk_size:]
 
         return total_log_prob
 
@@ -198,12 +234,12 @@ def train_lm(args, train_text, dev_text, vocab_index):
 
     # Hyperparameters
     chunk_size = 20
-    num_epochs = 10
+    num_epochs = 15
     d_model = 128
-    d_internal = 512
+    d_internal = 64
     learning_rate = 0.0001
-    num_head = 8
-    num_layers = 6
+    num_head = 4
+    num_layers = 3
     vocab_size = len(vocab_index)
 
     model = TransformerLM(vocab_size=vocab_size,
@@ -224,7 +260,7 @@ def train_lm(args, train_text, dev_text, vocab_index):
         model.train()
         total_loss = 0
         total_log_prob = 0
-        total_characters = 0
+        total_predictions = 0
 
         i = 0
 
@@ -260,14 +296,18 @@ def train_lm(args, train_text, dev_text, vocab_index):
             total_loss += loss.item()
 
             # Perplexity calc
-            temp = target_tensor.numel()
-            total_log_prob += -loss.item() * temp
-            total_characters += target_tensor.numel()
+            for j in range(len(truth)):
+                true_index = truth[j].item()
+                log_probs = pred_output[j]
+                log_probs = log_probs.detach().numpy()
+                log_prob_of_char = log_probs[true_index]
+                total_log_prob += log_prob_of_char
+                total_predictions += 1
 
             i += 1
 
         # Outside epoch total perplexity
-        avg_log_prob = total_log_prob / total_characters
+        avg_log_prob = total_log_prob / total_predictions
         perplexity = np.exp(-avg_log_prob)
 
         print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f} | Perplexity: {perplexity:.4f}")
