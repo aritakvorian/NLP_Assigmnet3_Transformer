@@ -123,17 +123,15 @@ class NeuralLanguageModel(LanguageModel):
         self.vocab_size = len(vocab_index)
 
     def get_next_char_log_probs(self, context):
-        # Convert the context to indexed format, create a tensor, and pass through the model
         context_indices = [self.vocab_index.index_of(char) for char in context]
-        context_tensor = torch.tensor(context_indices).unsqueeze(0)  # Add batch dimension
-        context_mask = masking(context_tensor.size(1))
+        context_tensor = torch.tensor(context_indices).unsqueeze(0)
+        #context_mask = masking(context_tensor.size(1))
 
         with torch.no_grad():
             self.transformer_lm.eval()
             output = self.transformer_lm.generate(context_tensor)
 
-        # Return the log probabilities of the next character
-        return output[0, -1, :].numpy()  # log probs for the next char
+        return output[0, -1, :].numpy()
 
     def get_log_prob_sequence(self, next_chars, context):
 
@@ -142,25 +140,20 @@ class NeuralLanguageModel(LanguageModel):
 
         total_log_prob = 0.0
 
-        # Process context in chunks if it's longer than the model's chunk_size
-        chunk_size = self.transformer_lm.chunk_size  # Assuming chunk_size is defined in the model
+        chunk_size = self.transformer_lm.chunk_size
 
-        # Split the context into chunks if needed
         context_chunks = [context[i:i + chunk_size] for i in range(0, len(context), chunk_size)]
 
-        # Initialize the current chunk to feed into the model
-        current_chunk = context_chunks[-1]  # Get the last chunk for prediction
+        current_chunk = context_chunks[-1]
 
         for char in next_chars:
-            # Get the log probabilities for the next character based on the current chunk
+
             log_probs = self.get_next_char_log_probs(current_chunk)
             char_index = self.vocab_index.index_of(char)
             total_log_prob += log_probs[char_index]
 
-            # Update context with the predicted character
             current_chunk += char
 
-            # If current chunk exceeds the model's chunk_size, slice it to keep it within the limit
             if len(current_chunk) > chunk_size:
                 current_chunk = current_chunk[-chunk_size:]
 
@@ -178,15 +171,15 @@ def create_chunks(text, chunk_size):
     target_chunks = []
 
     for i in range(len(words) - 1):
-        # Create chunk of text
+
         chunk = ' '.join(words[i:])[:chunk_size]
 
-        # Pad chunk with spaces if it's less than the chunk size
+        # Padding
         if len(chunk) < chunk_size:
             chunk = ' ' * (chunk_size - len(chunk)) + chunk
 
-        input_chunk = ' ' + chunk[:chunk_size - 1]  # Add space at the start for input
-        target_chunk = chunk[:chunk_size]  # Predict the actual characters
+        input_chunk = ' ' + chunk[:chunk_size - 1]
+        target_chunk = chunk[:chunk_size]
 
         input_chunks.append(input_chunk)
         target_chunks.append(target_chunk)
@@ -205,7 +198,7 @@ def train_lm(args, train_text, dev_text, vocab_index):
 
     # Hyperparameters
     chunk_size = 20
-    num_epochs = 25
+    num_epochs = 10
     d_model = 128
     d_internal = 512
     learning_rate = 0.0001
@@ -213,7 +206,6 @@ def train_lm(args, train_text, dev_text, vocab_index):
     num_layers = 6
     vocab_size = len(vocab_index)
 
-    # Initialize the model
     model = TransformerLM(vocab_size=vocab_size,
                           d_model=d_model,
                           num_head=num_head,
@@ -231,27 +223,30 @@ def train_lm(args, train_text, dev_text, vocab_index):
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0
+        total_log_prob = 0
+        total_characters = 0
 
         i = 0
 
         for input_chunk, target_chunk in zip(input_chunks, target_chunks):
 
-            if i % 1000 == 0:
+            if i % 1000 == 0 and i > 0:
                 print(f'Processing chunk: {i}')
 
-            # Convert input and target chunks to tensor of indices
-            input_tensor = torch.tensor([vocab_index.index_of(c) for c in input_chunk]).unsqueeze(0)  # [1, chunk_size]
-            target_tensor = torch.tensor([vocab_index.index_of(c) for c in target_chunk]).unsqueeze(0)  # [1, chunk_size]
+            # Batching option
+            input_tensor = torch.tensor([vocab_index.index_of(c) for c in input_chunk]).unsqueeze(0)  # [batch, chunk_size]
+            target_tensor = torch.tensor([vocab_index.index_of(c) for c in target_chunk]).unsqueeze(0)  # [batch, chunk_size]
 
+            # No batching
             input_tensor = torch.tensor([vocab_index.index_of(c) for c in input_chunk])
             target_tensor = torch.tensor([vocab_index.index_of(c) for c in target_chunk])
 
-            # Masking for the transformer
-            src_mask = masking(chunk_size)
+            # Masking
+            mask = masking(chunk_size)
 
             # Forward pass
             optimizer.zero_grad()
-            prediction = model(input_tensor, src_mask)
+            prediction = model(input_tensor, mask)
 
             test = torch.exp(prediction)
 
@@ -264,8 +259,17 @@ def train_lm(args, train_text, dev_text, vocab_index):
 
             total_loss += loss.item()
 
+            # Perplexity calc
+            temp = target_tensor.numel()
+            total_log_prob += -loss.item() * temp
+            total_characters += target_tensor.numel()
+
             i += 1
 
-        print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss:.4f}\n")
+        # Outside epoch total perplexity
+        avg_log_prob = total_log_prob / total_characters
+        perplexity = np.exp(-avg_log_prob)
+
+        print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f} | Perplexity: {perplexity:.4f}")
 
     return NeuralLanguageModel(model, vocab_index)
