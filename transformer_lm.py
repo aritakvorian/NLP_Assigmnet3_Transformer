@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch import nn
 import math
+import random
 
 class LanguageModel(object):
 
@@ -143,9 +144,11 @@ class NeuralLanguageModel(LanguageModel):
         self.vocab_index = vocab_index
         self.vocab_size = len(vocab_index)
 
-    def get_next_char_log_probs(self, context):
+    def get_next_char_log_probs(self, context, verbose=True):
 
-        print(context)
+        if verbose:
+            print(context)
+
         context_indices = [self.vocab_index.index_of(char) for char in context]
         context_tensor = torch.tensor(context_indices)
         #context_mask = masking(context_tensor.size(1))
@@ -161,7 +164,7 @@ class NeuralLanguageModel(LanguageModel):
 
         return test.numpy()
 
-    def get_log_prob_sequence(self, next_chars, context):
+    def get_log_prob_sequence(self, next_chars, context, verbose=True):
 
         if context == "":
             context = " "
@@ -175,7 +178,7 @@ class NeuralLanguageModel(LanguageModel):
 
         for char in next_chars:
 
-            log_probs = self.get_next_char_log_probs(current_context_chunk)
+            log_probs = self.get_next_char_log_probs(current_context_chunk, verbose=verbose)
             char_index = self.vocab_index.index_of(char)
 
             log_prob_of_char = log_probs[char_index]
@@ -224,6 +227,14 @@ def create_chunks(text, chunk_size):
     return input_chunks, target_chunks
 
 
+def compute_perplexity(lm, text):
+    log_prob = float(lm.get_log_prob_sequence(text, "", verbose=False))
+    avg_log_prob = log_prob / len(text)
+    perplexity = np.exp(-log_prob / len(text))
+
+    return perplexity
+
+
 def train_lm(args, train_text, dev_text, vocab_index):
     """
     :param args: command-line args, passed through here for your convenience
@@ -242,6 +253,7 @@ def train_lm(args, train_text, dev_text, vocab_index):
     num_head = 8
     num_layers = 6
     vocab_size = len(vocab_index)
+    random.seed(42)
 
     model = TransformerLM(vocab_size=vocab_size,
                           d_model=d_model,
@@ -262,6 +274,11 @@ def train_lm(args, train_text, dev_text, vocab_index):
         total_loss = 0
         total_log_prob = 0
         total_predictions = 0
+
+        # Shuffling input chunks
+        combined = list(zip(input_chunks, target_chunks))
+        random.shuffle(combined)
+        input_chunks, target_chunks = zip(*combined)
 
         i = 0
 
@@ -294,21 +311,10 @@ def train_lm(args, train_text, dev_text, vocab_index):
 
             total_loss += loss.item()
 
-            # Perplexity calc
-            for j in range(len(truth)):
-                true_index = truth[j].item()
-                log_probs = pred_output[j]
-                log_probs = log_probs.detach().numpy()
-                log_prob_of_char = log_probs[true_index]
-                total_log_prob += log_prob_of_char
-                total_predictions += 1
+        # Perplexity calculations
+        train_perplexity = compute_perplexity(NeuralLanguageModel(model, vocab_index), train_text)
+        dev_perplexity = compute_perplexity(NeuralLanguageModel(model, vocab_index), dev_text)
 
-            i += 1
-
-        # Outside epoch total perplexity
-        avg_log_prob = total_log_prob / total_predictions
-        perplexity = np.exp(-avg_log_prob)
-
-        print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f} | Perplexity: {perplexity:.4f}")
+        print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f} | Train Perplexity: {train_perplexity:.4f} | Dev Perplexity: {dev_perplexity:.4f}")
 
     return NeuralLanguageModel(model, vocab_index)
