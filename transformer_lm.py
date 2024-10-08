@@ -254,6 +254,7 @@ def train_lm(args, train_text, dev_text, vocab_index):
     num_layers = 6
     vocab_size = len(vocab_index)
     random.seed(42)
+    perplexity = True
 
     model = TransformerLM(vocab_size=vocab_size,
                           d_model=d_model,
@@ -312,9 +313,11 @@ def train_lm(args, train_text, dev_text, vocab_index):
             total_loss += loss.item()
 
         # Perplexity calculations
-        train_perplexity = compute_perplexity(NeuralLanguageModel(model, vocab_index), train_text)
-        dev_perplexity = compute_perplexity(NeuralLanguageModel(model, vocab_index), dev_text)
-
-        print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f} | Train Perplexity: {train_perplexity:.4f} | Dev Perplexity: {dev_perplexity:.4f}")
+        if perplexity is True:
+            train_perplexity = compute_perplexity(NeuralLanguageModel(model, vocab_index), train_text)
+            dev_perplexity = compute_perplexity(NeuralLanguageModel(model, vocab_index), dev_text)
+            print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f} | Train Perplexity: {train_perplexity:.4f} | Dev Perplexity: {dev_perplexity:.4f}")
+        else:
+            print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f}")
 
     return NeuralLanguageModel(model, vocab_index)
