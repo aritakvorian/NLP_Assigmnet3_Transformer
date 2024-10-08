@@ -246,11 +246,12 @@ def train_lm(args, train_text, dev_text, vocab_index):
 
     # Hyperparameters
     chunk_size = 20
-    num_epochs = 15
-    d_model = 128
-    d_internal = 64
-    learning_rate = 0.0001
-    num_head = 8
+    batch_size = 1
+    num_epochs = 25
+    d_model = 24
+    d_internal = 12
+    learning_rate = 0.0002
+    num_head = 4
     num_layers = 6
     vocab_size = len(vocab_index)
     random.seed(42)
