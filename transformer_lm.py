@@ -207,20 +207,16 @@ def masking(size):
 
 
 def create_chunks(text, chunk_size):
-    words = text.split(' ')
     input_chunks = []
     target_chunks = []
 
-    for i in range(len(words) - 1):
+    # Set the sliding step to half of chunk_size
+    step_size = chunk_size // 2
 
-        chunk = ' '.join(words[i:])[:chunk_size]
-
-        # Padding
-        if len(chunk) < chunk_size:
-            chunk = ' ' * (chunk_size - len(chunk)) + chunk
-
-        input_chunk = ' ' + chunk[:chunk_size - 1]
-        target_chunk = chunk[:chunk_size]
+    # Iterate through the text with the updated sliding window
+    for i in range(0, len(text) - chunk_size, step_size):
+        input_chunk = text[i:i + chunk_size]
+        target_chunk = text[i + 1:i + chunk_size + 1]
 
         input_chunks.append(input_chunk)
         target_chunks.append(target_chunk)
@@ -248,11 +244,11 @@ def train_lm(args, train_text, dev_text, vocab_index):
     # Hyperparameters
     chunk_size = 20
     batch_size = 1
-    num_epochs = 15
+    num_epochs = 25
     d_model = 64
     d_internal = 32
-    learning_rate = 0.00015
-    num_head = 2
+    learning_rate = 0.001
+    num_head = 4
     num_layers = 3
     vocab_size = len(vocab_index)
     random.seed(42)
