@@ -47,56 +47,56 @@ class UniformLanguageModel(LanguageModel):
         return np.log(1.0/self.voc_size) * len(next_chars)
 
 
-# class PositionalEncoding(nn.Module):
-#     def __init__(self, d_model: int, num_positions: int=20, batched=False):
-#         """
-#         :param d_model: dimensionality of the embedding layer to your model; since the position encodings are being
-#         added to character encodings, these need to match (and will match the dimension of the subsequent Transformer
-#         layer inputs/outputs)
-#         :param num_positions: the number of positions that need to be encoded; the maximum sequence length this
-#         module will see
-#         :param batched: True if you are using batching, False otherwise
-#         """
-#         super().__init__()
-#         # Dict size
-#         self.emb = nn.Embedding(num_positions, d_model)
-#         self.batched = batched
-#
-#     def forward(self, x):
-#         """
-#         :param x: If using batching, should be [batch size, seq len, embedding dim]. Otherwise, [seq len, embedding dim]
-#         :return: a tensor of the same size with positional embeddings added in
-#         """
-#         # Second-to-last dimension will always be sequence length
-#         input_size = x.shape[-2]
-#         indices_to_embed = torch.tensor(np.asarray(range(0, input_size))).type(torch.LongTensor)
-#         if self.batched:
-#             # Use unsqueeze to form a [1, seq len, embedding dim] tensor -- broadcasting will ensure that this
-#             # gets added correctly across the batch
-#             emb_unsq = self.emb(indices_to_embed).unsqueeze(0)
-#             return x + emb_unsq
-#         else:
-#             return x + self.emb(indices_to_embed)
-
 class PositionalEncoding(nn.Module):
-
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        #pe = pe.transpose(0, 1)
-        # pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+    def __init__(self, d_model: int, num_positions: int=20, batched=False):
+        """
+        :param d_model: dimensionality of the embedding layer to your model; since the position encodings are being
+        added to character encodings, these need to match (and will match the dimension of the subsequent Transformer
+        layer inputs/outputs)
+        :param num_positions: the number of positions that need to be encoded; the maximum sequence length this
+        module will see
+        :param batched: True if you are using batching, False otherwise
+        """
+        super().__init__()
+        # Dict size
+        self.emb = nn.Embedding(num_positions, d_model)
+        self.batched = batched
 
     def forward(self, x):
-        res = self.pe[:x.size(0), :]
-        x = x + res
-        return self.dropout(x)
+        """
+        :param x: If using batching, should be [batch size, seq len, embedding dim]. Otherwise, [seq len, embedding dim]
+        :return: a tensor of the same size with positional embeddings added in
+        """
+        # Second-to-last dimension will always be sequence length
+        input_size = x.shape[-2]
+        indices_to_embed = torch.tensor(np.asarray(range(0, input_size))).type(torch.LongTensor)
+        if self.batched:
+            # Use unsqueeze to form a [1, seq len, embedding dim] tensor -- broadcasting will ensure that this
+            # gets added correctly across the batch
+            emb_unsq = self.emb(indices_to_embed).unsqueeze(0)
+            return x + emb_unsq
+        else:
+            return x + self.emb(indices_to_embed)
+
+# class PositionalEncoding(nn.Module):
+#
+#     def __init__(self, d_model, dropout=0.1, max_len=5000):
+#         super(PositionalEncoding, self).__init__()
+#         self.dropout = nn.Dropout(p=dropout)
+#
+#         pe = torch.zeros(max_len, d_model)
+#         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+#         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+#         pe[:, 0::2] = torch.sin(position * div_term)
+#         pe[:, 1::2] = torch.cos(position * div_term)
+#         #pe = pe.transpose(0, 1)
+#         # pe = pe.unsqueeze(0).transpose(0, 1)
+#         self.register_buffer('pe', pe)
+#
+#     def forward(self, x):
+#         res = self.pe[:x.size(0), :]
+#         x = x + res
+#         return self.dropout(x)
 
 
 class TransformerLM(nn.Module):
@@ -107,8 +107,9 @@ class TransformerLM(nn.Module):
         self.chunk_size = chunk_size
 
         self.embedding = nn.Embedding(vocab_size, d_model)
-        # self.positional_encoding = PositionalEncoding(d_model, chunk_size)
-        self.positional_encoding = PositionalEncoding(d_model)
+
+        self.positional_encoding = PositionalEncoding(d_model, chunk_size)
+        # self.positional_encoding = PositionalEncoding(d_model)
 
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=num_head, dim_feedforward=d_internal,
                                                    dropout=dropout)
@@ -201,7 +202,7 @@ class NeuralLanguageModel(LanguageModel):
 
 
 def masking(size):
-    mask = torch.triu(torch.zeros(size, size) + float('-inf'), diagonal=1)
+    mask = torch.triu(torch.ones(size, size) * float('-inf'), diagonal=1)
     return mask
 
 
@@ -247,12 +248,12 @@ def train_lm(args, train_text, dev_text, vocab_index):
     # Hyperparameters
     chunk_size = 20
     batch_size = 1
-    num_epochs = 25
-    d_model = 24
-    d_internal = 12
-    learning_rate = 0.0002
-    num_head = 4
-    num_layers = 6
+    num_epochs = 15
+    d_model = 64
+    d_internal = 32
+    learning_rate = 0.00015
+    num_head = 2
+    num_layers = 3
     vocab_size = len(vocab_index)
     random.seed(42)
     perplexity = True
@@ -312,6 +313,8 @@ def train_lm(args, train_text, dev_text, vocab_index):
             optimizer.step()
 
             total_loss += loss.item()
+
+        model.eval()
 
         # Perplexity calculations
         if perplexity is True:
