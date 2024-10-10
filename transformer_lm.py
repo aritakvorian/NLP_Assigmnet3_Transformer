@@ -5,6 +5,7 @@ import torch
 from torch import nn
 import math
 import random
+import time
 
 class LanguageModel(object):
 
@@ -241,10 +242,12 @@ def train_lm(args, train_text, dev_text, vocab_index):
     :return: a NeuralLanguageModel instance trained on the given data
     """
 
+    start_time = time.time()
+
     # Hyperparameters
     chunk_size = 20
     batch_size = 1
-    num_epochs = 25
+    num_epochs = 7
     d_model = 64
     d_internal = 32
     learning_rate = 0.001
@@ -252,7 +255,7 @@ def train_lm(args, train_text, dev_text, vocab_index):
     num_layers = 3
     vocab_size = len(vocab_index)
     random.seed(42)
-    perplexity = True
+    perplexity = False
 
     model = TransformerLM(vocab_size=vocab_size,
                           d_model=d_model,
@@ -319,5 +322,9 @@ def train_lm(args, train_text, dev_text, vocab_index):
             print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f} | Train Perplexity: {train_perplexity:.4f} | Dev Perplexity: {dev_perplexity:.4f}")
         else:
             print(f"Epoch {epoch + 1}/{num_epochs} | Loss: {total_loss:.4f}")
+
+    end_time = time.time()
+
+    print(f'Total Training Time: {end_time - start_time}')
 
     return NeuralLanguageModel(model, vocab_index)
